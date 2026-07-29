@@ -1,141 +1,393 @@
-# queuectl
+# 🚀 QueueCTL
 
-A CLI-based background job queue, built from scratch on Node.js and MongoDB.
-No Redis, no BullMQ, no queue libraries -- job claiming, retries, backoff, and
-crash recovery are all implemented directly on top of a single atomic MongoDB
-operation.
+A production-inspired **CLI-based Background Job Queue System** built with **Node.js**, **MongoDB**, and **Commander.js**.
 
-## Architecture
+QueueCTL allows users to enqueue shell commands, process them asynchronously using multiple worker processes, automatically retry failed jobs with exponential backoff, recover jobs after worker crashes, and manage permanently failed jobs through a Dead Letter Queue (DLQ).
+
+---
+
+# ✨ Features
+
+- ✅ CLI-based job management
+- ✅ MongoDB persistent storage
+- ✅ Multiple background workers
+- ✅ Atomic job claiming
+- ✅ Exponential retry mechanism
+- ✅ Dead Letter Queue (DLQ)
+- ✅ Crash recovery using worker heartbeat
+- ✅ Graceful worker shutdown
+- ✅ Queue health monitoring
+- ✅ Execution metrics
+- ✅ Job execution logs
+- ✅ Worker monitoring
+- ✅ Cross-terminal worker management
+
+---
+
+# 🏗️ Architecture
 
 ```
-   ┌─────────────┐
-   │  index.js   │  Commander.js CLI entrypoint
-   └──────┬──────┘
-          │
-   ┌──────▼──────┐
-   │  commands/  │  parses args, calls services, formats output
-   └──────┬──────┘
-          │
-   ┌──────▼──────┐
-   │  services/  │  business logic (claiming, backoff, state transitions)
-   └──────┬──────┘
-          │
-   ┌──────▼──────┐
-   │   models/   │  Mongoose schemas
-   └──────┬──────┘
-          │
-   ┌──────▼──────┐
-   │   MongoDB   │
-   └─────────────┘
-
-Workers (src/workers/workerProcess.js) run as SEPARATE OS processes,
-forked by `worker start`. They talk to MongoDB directly through
-services/ -- never to the CLI process. This is what "workers
-communicate only through the database" means in this codebase.
+                +----------------------+
+                |      QueueCTL CLI    |
+                +----------+-----------+
+                           |
+                           |
+               Commander.js Commands
+                           |
+        +------------------+------------------+
+        |                  |                  |
+        |                  |                  |
+   Job Service       Worker Service     Config Service
+        |                  |                  |
+        +------------------+------------------+
+                           |
+                      MongoDB Database
+                           |
+              +------------+------------+
+              |                         |
+        Background Workers         Scheduler
+              |
+      Execute Shell Commands
 ```
 
-## Folder Structure
+---
+
+# 📁 Project Structure
 
 ```
 queuectl/
-├── index.js                   CLI entrypoint
-├── src/
-│   ├── config/db.js            Mongoose connection
-│   ├── constants/jobStates.js  job state enum + defaults
-│   ├── models/                 Job, Worker, Config, JobLog schemas
-│   ├── services/                business logic layer
-│   ├── workers/                 workerProcess.js (the loop) + executor.js
-│   ├── scheduler/               stale job recovery sweep
-│   ├── commands/                one file per CLI command
-│   ├── middleware/errorHandler.js
-│   └── utils/                   logger, backoff calculation
-├── logs/                        structured log output
-├── .env.example
-├── README.md
-└── DECISIONS.md
+
+│── index.js
+│── package.json
+│── README.md
+│── DECISIONS.md
+│── .env.example
+
+└── src
+    ├── commands
+    ├── config
+    ├── constants
+    ├── middleware
+    ├── models
+    ├── scheduler
+    ├── services
+    ├── utils
+    └── workers
 ```
 
-## Features
+---
 
-- Enqueue / list / status / DLQ / config CLI commands
-- Multiple worker processes (real OS processes, not threads), running
-  in parallel across separate terminals
-- Atomic job claiming via `findOneAndUpdate` -- a job is never run twice
-- Exponential backoff retries, configurable base
-- Dead Letter Queue for permanently failed jobs, with manual retry
-- Crash recovery: jobs abandoned by a `SIGKILL`'d worker are detected
-  and requeued automatically, well under the required 60s worst case
-- Graceful shutdown on `SIGTERM`/`SIGINT`: finishes the in-flight job first
-- Structured logs (timestamp, worker id, job id, status, duration, retry number)
-- Bonus commands: `health`, `metrics`, `logs <jobId>`
+# ⚙️ Tech Stack
 
-## Installation
+- Node.js
+- MongoDB
+- Mongoose
+- Commander.js
+- Chalk
+- dotenv
+
+---
+
+# 🚀 Installation
+
+## Clone Repository
 
 ```bash
-git clone <your-repo-url>
+git clone https://github.com/YOUR_USERNAME/queuectl.git
 cd queuectl
-npm install
-cp .env.example .env
-# make sure MongoDB is running locally, matching MONGO_URI in .env
 ```
 
-## Commands
-
-| Command | Description |
-|---|---|
-| `queuectl enqueue '{"id":"job1","command":"sleep 2"}'` | Add a new job |
-| `queuectl worker start --count 3` | Start 3 workers in the foreground |
-| `queuectl worker stop` | Gracefully stop all running workers (run from another terminal) |
-| `queuectl status` | Summary of job states + active workers |
-| `queuectl list --state pending [--json]` | List jobs by state |
-| `queuectl dlq list` | List dead-lettered jobs |
-| `queuectl dlq retry job1` | Re-enqueue a dead job |
-| `queuectl config set max-retries 3` | Update configuration |
-| `queuectl config show` | Show current configuration |
-| `queuectl health` | Quick health check |
-| `queuectl metrics` | Aggregate metrics |
-| `queuectl logs job1` | Execution history for a job |
-
-## Example Session
+## Install Dependencies
 
 ```bash
-# terminal 1
-queuectl worker start --count 3
-
-# terminal 2
-queuectl enqueue '{"id":"job1","command":"echo hello"}'
-queuectl enqueue '{"id":"job2","command":"exit 1"}'
-queuectl status
-queuectl list --state dead --json
-queuectl worker stop
+npm install
 ```
 
-## Testing the Required Scenarios
+---
 
-1. **Basic job completes** -- enqueue a job with `command: "echo ok"`, start
-   a worker, confirm `status` shows it as `completed`.
-2. **Failing job retries then hits DLQ** -- enqueue with `command: "exit 1"`
-   and `max_retries: 2`, watch `list --state failed`/`dlq list` over time.
-3. **Exactly-once across multiple workers** -- start `worker start --count 5`,
-   enqueue many jobs, confirm total completed count matches jobs enqueued
-   (no duplicates) via `logs <jobId>`.
-4. **SIGKILL survival** -- start a worker, `kill -9 <pid>` mid-job, confirm
-   the job is picked up again within `STALE_JOB_THRESHOLD_MS`.
-5. **Full restart** -- stop everything, restart MongoDB and `worker start`
-   again, confirm no data was lost (`list --json`).
+# Configure Environment
 
-## Screenshots
+Create a `.env` file.
 
-_(placeholder -- add terminal screenshots of `status`, `health`, and a
-worker session here before submission)_
+Example:
 
-## Demo Recording
+```env
+MONGO_URI=mongodb://127.0.0.1:27017/queuectl
+```
 
-_(placeholder -- add your screen recording link here)_
+or
 
-## Future Improvements
+```env
+MONGO_URI=mongodb+srv://<username>:<password>@cluster.mongodb.net/queuectl
+```
 
-- Priority queues (see DECISIONS.md Q5 for what would need to change)
-- Job timeouts (kill a command if it runs too long)
-- Scheduled jobs (`run_at` in the future)
-- Minimal web dashboard reading the same MongoDB collections
+---
+
+# ▶ Running the Project
+
+## Queue Status
+
+```bash
+node index.js status
+```
+
+---
+
+## Start Worker
+
+```bash
+node index.js worker start --count 1
+```
+
+---
+
+## Stop Worker
+
+```bash
+node index.js worker stop
+```
+
+---
+
+# 📝 Creating Jobs
+
+QueueCTL supports **two methods** for enqueuing jobs.
+
+## Method 1 (Recommended)
+
+Create a JSON file.
+
+Example:
+
+`job.json`
+
+```json
+{
+  "id": "job1",
+  "command": "echo Hello QueueCTL"
+}
+```
+
+Run:
+
+```bash
+node index.js enqueue job.json
+```
+
+---
+
+## Method 2 (Linux/macOS)
+
+```bash
+node index.js enqueue '{"id":"job1","command":"echo Hello QueueCTL"}'
+```
+
+> **Note:**  
+> Windows PowerShell handles JSON arguments differently. Therefore, using a JSON file (`job.json`) is the recommended and cross-platform compatible approach.
+
+---
+
+# 📋 Available Commands
+
+## Enqueue Job
+
+```bash
+node index.js enqueue job.json
+```
+
+---
+
+## Start Workers
+
+```bash
+node index.js worker start --count 3
+```
+
+---
+
+## Stop Workers
+
+```bash
+node index.js worker stop
+```
+
+---
+
+## Queue Status
+
+```bash
+node index.js status
+```
+
+---
+
+## List Jobs
+
+```bash
+node index.js list
+```
+
+Filter by state
+
+```bash
+node index.js list --state pending
+```
+
+JSON Output
+
+```bash
+node index.js list --state pending --json
+```
+
+---
+
+## Dead Letter Queue
+
+List
+
+```bash
+node index.js dlq list
+```
+
+Retry
+
+```bash
+node index.js dlq retry job1
+```
+
+---
+
+## Queue Health
+
+```bash
+node index.js health
+```
+
+---
+
+## Queue Metrics
+
+```bash
+node index.js metrics
+```
+
+---
+
+## Job Logs
+
+```bash
+node index.js logs job1
+```
+
+---
+
+# 🔄 Job Lifecycle
+
+```
+Pending
+   │
+   ▼
+Processing
+   │
+   ├──────────────► Completed
+   │
+   ▼
+Failed
+   │
+Retry (Exponential Backoff)
+   │
+   ▼
+Pending
+   │
+   ▼
+Failed Again
+   │
+   ▼
+Dead Letter Queue
+```
+
+---
+
+# 🔁 Retry Strategy
+
+QueueCTL retries failed jobs using **Exponential Backoff**.
+
+Example (base = 2):
+
+| Attempt | Delay |
+|---------|------|
+| 1 | 2 seconds |
+| 2 | 4 seconds |
+| 3 | 8 seconds |
+
+After exceeding the configured retry limit, the job is moved to the Dead Letter Queue.
+
+---
+
+# ❤️ Crash Recovery
+
+Workers periodically send heartbeats to MongoDB.
+
+If a worker crashes while processing a job:
+
+- Heartbeat expires
+- Recovery service detects the stale worker
+- Job is moved back to **Pending**
+- Another worker resumes processing
+
+This ensures no job remains permanently stuck in the `processing` state.
+
+---
+
+# 📊 Metrics
+
+QueueCTL provides:
+
+- Total execution attempts
+- Average execution duration
+- Job state summary
+- Active worker count
+- Queue health
+
+---
+
+# 🔒 Atomic Job Claiming
+
+To prevent duplicate execution across multiple workers, jobs are claimed atomically using MongoDB's `findOneAndUpdate()` operation.
+
+This guarantees that only one worker can claim a pending job at a time.
+
+---
+
+# 🧪 Testing
+
+Test the following scenarios before submission:
+
+- Successful job execution
+- Failed job retries
+- DLQ movement
+- DLQ retry
+- Multiple workers
+- Worker crash recovery
+- Graceful shutdown
+- Queue metrics
+- Queue health
+- JSON output
+
+---
+
+
+
+
+# 📚 Future Improvements
+
+- Job priorities
+- Scheduled jobs
+- REST API
+- Web Dashboard
+- Job cancellation
+- Authentication
+- Docker support
+- Redis backend
+- Prometheus metrics
+- Grafana monitoring
