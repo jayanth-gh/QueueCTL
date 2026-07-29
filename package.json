@@ -1,0 +1,22 @@
+{
+  "name": "queuectl",
+  "version": "1.0.0",
+  "description": "A CLI-based background job queue with worker processes, retries, and a dead letter queue.",
+  "main": "index.js",
+  "bin": {
+    "queuectl": "./index.js"
+  },
+  "type": "commonjs",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "chalk": "4.1.2",
+    "commander": "^11.1.0",
+    "dotenv": "^16.4.5",
+    "mongoose": "^8.4.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
